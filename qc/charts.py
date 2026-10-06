@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from .constants import (
+    MA_COLOR, NOK_CAUSE_COLORS, NOK_CAUSE_ORDER,
     AXIS_COLORS, BATTERY_TYPES, CAUSE_COLORS, CAUSE_ORDER, CORNER_LABELS, CORNERS,
     HIGHLIGHT_COLOR, INK, LIMIT_COLOR, NOMINAL_COLOR, OPTION_COLORS, STATUS_COLORS,
     TARGET_COLOR, TYPE_COLORS,
@@ -92,17 +93,20 @@ def weekly_fpy(weekly: pd.DataFrame, target: float, ma_window: int, show_incompl
                         vertical_spacing=0.06)
     x = weekly["CalendarWeek"]
     low = weekly["LowSample"].to_numpy()
+    labels = [f"{r:.0f}%*" if lo else f"{r:.0f}%" for r, lo in zip(weekly["PassRate"], low)]
     fig.add_trace(go.Scatter(
-        x=x, y=weekly["PassRate"], mode="lines+markers", name="Weekly FPY",
+        x=x, y=weekly["PassRate"], mode="lines+markers+text", name="Weekly FPY",
         line=dict(color="#2a78d6", width=2),
         marker=dict(size=8, color=np.where(low, "rgba(0,0,0,0)", "#2a78d6"),
                     line=dict(width=2, color="#2a78d6")),
-        customdata=np.stack([weekly["Total"], np.where(low, "low sample (N<5)", "")], axis=1),
+        text=labels, textposition="top center", textfont=dict(size=11, color=INK["primary"]),
+        cliponaxis=False,
+        customdata=np.stack([weekly["Total"], np.where(low, "· low sample (N<5)", "")], axis=1),
         hovertemplate="<b>%{x}</b><br>FPY %{y:.1f}%<br>%{customdata[0]} modules %{customdata[1]}<extra></extra>",
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
-        x=x, y=weekly["MA_FPY"], mode="lines", name=f"{ma_window}-week moving average",
-        line=dict(color=INK["secondary"], width=2, dash="dot"),
+        x=x, y=weekly["MA_FPY"], mode="lines", name=f"MA{ma_window} ({ma_window}-week moving average)",
+        line=dict(color=MA_COLOR, width=2.5, dash="dash"),
         hovertemplate=f"<b>%{{x}}</b><br>MA{ma_window}: %{{y:.1f}}%<extra></extra>",
     ), row=1, col=1)
     fig.add_hline(y=target, line_color=TARGET_COLOR, line_width=1.5, line_dash="dash",
@@ -118,38 +122,46 @@ def weekly_fpy(weekly: pd.DataFrame, target: float, ma_window: int, show_incompl
             hovertemplate=f"<b>%{{x}}</b><br>{colname}: %{{y}}<extra></extra>",
         ), row=2, col=1)
     fig.update_layout(barmode="stack", bargap=0.35)
-    fig.update_yaxes(title_text="FPY (%)", range=[0, 105], row=1, col=1)
+    fig.update_yaxes(title_text="FPY (%)", range=[0, 112], row=1, col=1)
     fig.update_yaxes(title_text="Modules", row=2, col=1)
-    _base(fig, 430)
+    _base(fig, 450)
     _week_axis(fig, x)
     return fig
 
 
 def status_by_type(first: pd.DataFrame, statuses=("PASS", "FAIL", "INCOMPLETE")) -> go.Figure:
-    """100% horizontal bars of first-run status per battery type."""
+    """100% horizontal bars of first-run status per battery type, plus an
+    'All types' bar when there are several. Row labels carry the totals so
+    nobody has to add up the segments."""
     if first.empty:
         return empty()
     types = [t for t in BATTERY_TYPES if (first["BatteryType"] == t).any()]
-    counts = first.groupby(["BatteryType", "Status"]).size().unstack(fill_value=0)
+    counts = (first.groupby(["BatteryType", "Status"]).size().unstack(fill_value=0)
+              .reindex(types).fillna(0))
+    if len(types) > 1:
+        counts.loc["All types"] = counts.sum()
+    rows = list(counts.index)
+    tot = counts.sum(axis=1)
+    ylab = [f"<b>{r}</b><br>{int(n)} modules" for r, n in zip(rows, tot)]
     fig = go.Figure()
-    for s in statuses:
-        if s not in counts.columns or counts[s].sum() == 0:
+    for s_ in statuses:
+        if s_ not in counts.columns or counts[s_].sum() == 0:
             continue
-        c = counts.reindex(types)[s].fillna(0)
-        tot = counts.reindex(types).sum(axis=1)
+        c = counts[s_]
         pct = c / tot * 100
         fig.add_trace(go.Bar(
-            y=types, x=pct, orientation="h", name=s.title(),
-            marker=dict(color=STATUS_COLORS[s], line=dict(width=2, color="rgba(255,255,255,0.9)")),
+            y=ylab, x=pct, orientation="h", name=s_.title(),
+            marker=dict(color=STATUS_COLORS[s_], line=dict(width=2, color="rgba(255,255,255,0.9)")),
             text=[f"{p:.0f}% ({int(n)})" if p >= 8 else "" for p, n in zip(pct, c)],
             textposition="inside", insidetextanchor="middle", textfont=dict(color="white", size=12),
             customdata=np.stack([c, tot], axis=1),
-            hovertemplate="<b>%{y}</b><br>" + s.title() + ": %{x:.1f}% (%{customdata[0]} of %{customdata[1]})<extra></extra>",
+            hovertemplate="%{y}<br>" + s_.title()
+                          + ": %{x:.1f}% (%{customdata[0]:.0f} of %{customdata[1]:.0f})<extra></extra>",
         ))
-    fig.update_layout(barmode="stack", bargap=0.45)
+    fig.update_layout(barmode="stack", bargap=0.4)
     fig.update_xaxes(range=[0, 100], ticksuffix="%", showgrid=True, gridcolor="rgba(137,135,129,0.22)")
     fig.update_yaxes(showgrid=False, autorange="reversed")
-    return _base(fig, 90 + 60 * len(types))
+    return _base(fig, 100 + 62 * len(rows))
 
 
 def failure_pareto(pareto: pd.DataFrame, n_nok: int) -> go.Figure:
@@ -171,7 +183,7 @@ def failure_pareto(pareto: pd.DataFrame, n_nok: int) -> go.Figure:
                                  orientation="h", showlegend=True, hoverinfo="skip"))
     fig.update_xaxes(range=[0, min(100, p["Share"].max() * 1.25 + 5)], ticksuffix="%",
                      showgrid=True, gridcolor="rgba(137,135,129,0.22)",
-                     title_text=f"Share of NOK modules (N = {n_nok}; a module can count in several bars)")
+                     title_text=f"% of NOK modules (N = {n_nok})")
     fig.update_yaxes(showgrid=False)
     fig.update_layout(bargap=0.35)
     return _base(fig, 80 + 34 * len(p))
@@ -247,73 +259,107 @@ def corner_clouds(df_type: pd.DataFrame, limit: float, color: str) -> go.Figure:
 # Geometry
 # ---------------------------------------------------------------------------
 
+def short_id(part_id) -> str:
+    """Compact module label for legends: batch + serial when the ID has the
+    usual ...B156N00001... pattern, else the last 12 characters."""
+    import re
+    m = re.search(r"(B\d{3}N\d{5})", str(part_id))
+    return m.group(1) if m else str(part_id)[-12:]
+
+
+# Screen position of each corner (front = right, left side = top because the
+# Y axis is reversed); labels are anchored so they extend into the module.
+CORNER_ANCHOR = {"FL": ("right", "top"), "FR": ("right", "bottom"),
+                 "RL": ("left", "top"), "RR": ("left", "bottom")}
+
+
 def geometry_plot(df_plot: pd.DataFrame, types_in_scope, limit: float, exaggeration: float,
                   focus_key: str | None = None) -> go.Figure:
+    """Modules drawn against nominal. Every module is its own legend entry,
+    grouped by status: click an entry to hide it, double-click to show only
+    that one. The focused module carries its corner deviations as labels."""
     fig = go.Figure()
     for t in types_in_scope:
-        nom = nominal_points(t)
-        xs, ys = polygon(nom)
+        xs, ys = polygon(nominal_points(t))
         fig.add_trace(go.Scatter(
-            x=xs, y=ys, mode="lines", name=f"Nominal {t}",
-            line=dict(color=NOMINAL_COLOR, width=1.5, dash="dash"), hoverinfo="skip",
+            x=xs, y=ys, mode="lines", name=f"Nominal {t}", legendgroup="ref",
+            legendgrouptitle_text="Reference",
+            line=dict(color=NOMINAL_COLOR, width=2, dash="dash"), hoverinfo="skip",
         ))
-        eff = limit * exaggeration
-        for c, (cx, cy) in nom.items():
-            fig.add_shape(type="rect", x0=cx - eff, x1=cx + eff, y0=cy - eff, y1=cy + eff,
-                          line=dict(color="rgba(208,59,59,0.6)", width=1, dash="dot"))
-    shown = {"PASS": False, "FAIL": False, "INCOMPLETE": False}
+    eff = limit * exaggeration
+    bx, by = [], []
+    for t in types_in_scope:
+        for cx, cy in nominal_points(t).values():
+            bx += [cx - eff, cx + eff, cx + eff, cx - eff, cx - eff, None]
+            by += [cy - eff, cy - eff, cy + eff, cy + eff, cy - eff, None]
+    if bx:
+        fig.add_trace(go.Scatter(
+            x=bx, y=by, mode="lines", name=f"Tolerance ±{limit:g} mm", legendgroup="ref",
+            line=dict(color="rgba(208,59,59,0.6)", width=1, dash="dot"), hoverinfo="skip",
+        ))
+    names = {"FAIL": "Fail", "PASS": "Pass", "INCOMPLETE": "Incomplete"}
     focus_row = None
-    for _, row in df_plot.iterrows():
-        if row.get("_mod_key") == focus_key:
-            focus_row = row
-            continue
-        pts = actual_points(row, exaggeration)
-        if any(np.isnan(v) for p in pts.values() for v in p):
-            continue
-        xs, ys = polygon(pts)
-        status = row["Status"]
-        is_bad = status != "PASS"
-        fig.add_trace(go.Scatter(
-            x=xs, y=ys, mode="lines", legendgroup=status, showlegend=not shown[status],
-            name={"PASS": "Pass", "FAIL": "Fail", "INCOMPLETE": "Incomplete"}[status],
-            line=dict(color=STATUS_COLORS[status] if is_bad else "rgba(82,81,78,0.6)", width=1.6 if is_bad else 1.2),
-            opacity=0.85 if is_bad else 0.7,
-            hovertemplate=f"<b>{row['PartID']}</b><br>Run {row['RunNum']} · {status}<extra></extra>",
-        ))
-        shown[status] = True
+    for status in ("FAIL", "INCOMPLETE", "PASS"):
+        first_in_group = True
+        for _, row in df_plot[df_plot["Status"] == status].iterrows():
+            if row.get("_mod_key") == focus_key:
+                focus_row = row
+                continue
+            pts = actual_points(row, exaggeration)
+            if any(np.isnan(v) for p in pts.values() for v in p):
+                continue
+            xs, ys = polygon(pts)
+            is_bad = status != "PASS"
+            kw = {"legendgrouptitle_text": names[status]} if first_in_group else {}
+            fig.add_trace(go.Scatter(
+                x=xs, y=ys, mode="lines", legendgroup=status,
+                name=f"{short_id(row['PartID'])} · R{row['RunNum']}",
+                line=dict(color=STATUS_COLORS[status] if is_bad else "rgba(82,81,78,0.6)",
+                          width=1.6 if is_bad else 1.2),
+                opacity=0.85 if is_bad else 0.7,
+                hovertemplate=f"<b>{row['PartID']}</b><br>Run {row['RunNum']} · {status}"
+                              f"<br>{row['Date']:%Y-%m-%d %H:%M}<extra></extra>",
+                **kw,
+            ))
+            first_in_group = False
     if focus_row is not None:
         pts = actual_points(focus_row, exaggeration)
         if not any(np.isnan(v) for p in pts.values() for v in p):
             xs, ys = polygon(pts)
             fig.add_trace(go.Scatter(
-                x=xs, y=ys, mode="lines+markers", name="Focused module",
-                line=dict(color=HIGHLIGHT_COLOR, width=3.5), marker=dict(size=9),
-                hovertemplate=f"<b>{focus_row['PartID']}</b><br>Run {focus_row['RunNum']} · {focus_row['Status']}<extra></extra>",
+                x=xs, y=ys, mode="lines", legendgroup="focus", legendgrouptitle_text="Focused",
+                name=f"{short_id(focus_row['PartID'])} · R{focus_row['RunNum']}",
+                line=dict(color=HIGHLIGHT_COLOR, width=3.5),
+                hovertemplate=f"<b>{focus_row['PartID']}</b><br>Run {focus_row['RunNum']} · "
+                              f"{focus_row['Status']}<extra></extra>",
             ))
+            fig.add_trace(go.Scatter(
+                x=[pts[c][0] for c in CORNERS], y=[pts[c][1] for c in CORNERS],
+                mode="markers", legendgroup="focus", showlegend=False,
+                marker=dict(size=10, color=HIGHLIGHT_COLOR, line=dict(width=2, color="white")),
+                hoverinfo="skip",
+            ))
+            # Labels sit inside the outline, next to their corner, on a light
+            # background so they stay readable over the module lines.
+            for c in CORNERS:
+                vx, vy = focus_row[f"{c}_X"], focus_row[f"{c}_Y"]
+                out = abs(vx) > limit or abs(vy) > limit
+                xa, ya = CORNER_ANCHOR[c]
+                fig.add_annotation(
+                    x=pts[c][0], y=pts[c][1], text=f"<b>{c}</b>  X {vx:+.2f} · Y {vy:+.2f}",
+                    showarrow=False, xanchor=xa, yanchor=ya, xshift=-10 if xa == "right" else 10,
+                    yshift=-10 if ya == "top" else 10,
+                    font=dict(size=12, color=LIMIT_COLOR if out else INK["primary"]),
+                    bgcolor="rgba(255,255,255,0.88)", bordercolor=LIMIT_COLOR if out else HIGHLIGHT_COLOR,
+                    borderwidth=1, borderpad=3,
+                )
     fig.update_xaxes(title_text="Global X (mm)", showgrid=True, gridcolor="rgba(137,135,129,0.15)")
     fig.update_yaxes(title_text="Global Y (mm)", scaleanchor="x", scaleratio=1, autorange="reversed")
-    return _base(fig, 680)
-
-
-def module_corners(row: pd.Series, limit: float) -> go.Figure:
-    """Bar chart of one module's 8 deviations against the limit."""
-    labels, vals, cols = [], [], []
-    for c in CORNERS:
-        for a in ("X", "Y"):
-            labels.append(f"{c} {a}")
-            v = row.get(f"{c}_{a}")
-            vals.append(v)
-            cols.append(LIMIT_COLOR if pd.notna(v) and abs(v) > limit else AXIS_COLORS[a])
-    fig = go.Figure(go.Bar(
-        x=labels, y=vals, marker=dict(color=cols, line=dict(width=0)), showlegend=False,
-        text=[f"{v:+.2f}" if pd.notna(v) else "missing" for v in vals], textposition="outside",
-        cliponaxis=False, hovertemplate="%{x}: %{y:+.2f} mm<extra></extra>",
-    ))
-    _limit_lines(fig, limit, label=False)
-    m = max(limit + 1, np.nanmax(np.abs(np.array(vals, dtype=float)), initial=0) + 1)
-    fig.update_yaxes(range=[-m, m], title_text="mm", zeroline=True, zerolinecolor=INK["axis"])
-    fig.update_layout(bargap=0.4)
-    return _base(fig, 280, legend=False)
+    _base(fig, 700)
+    fig.update_layout(legend=dict(orientation="v", x=1.01, xanchor="left", y=1, yanchor="top",
+                                  font=dict(size=11), groupclick="toggleitem", tracegroupgap=10,
+                                  traceorder="grouped", itemclick="toggle", itemdoubleclick="toggleothers"))
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -346,34 +392,77 @@ def stacked_share(counts: pd.DataFrame, order, colors, height=None) -> go.Figure
     return _base(fig, height or (90 + 60 * len(types)))
 
 
-def deformation_map(sq: pd.DataFrame, diag_tol: float) -> go.Figure:
-    """Width delta vs length delta per module, colored by root cause: shows
-    which deformation pattern dominates and how far beyond tolerance."""
-    if sq.empty:
+def deformation_trend(weekly: pd.DataFrame) -> go.Figure:
+    """Deformed share per week (top, per battery type, plus a linear trend
+    over all modules) and deformed / square counts per week (bottom)."""
+    if weekly.empty:
         return empty()
-    fig = go.Figure()
-    ok = sq[sq["SquarenessStatus"] == "SQUARE OK"]
-    fig.add_trace(go.Scatter(
-        x=ok["WidthDelta"], y=ok["LengthDelta"], mode="markers", name="Square OK",
-        marker=dict(size=7, color="rgba(137,135,129,0.45)"),
-        customdata=np.stack([ok["PartID"], ok["DeltaDiag"]], axis=1) if len(ok) else None,
-        hovertemplate="%{customdata[0]}<br>Width Δ %{x:+.2f} · Length Δ %{y:+.2f} mm<br>Diag Δ %{customdata[1]:.2f} mm<extra></extra>",
-    ))
-    for cat in CAUSE_ORDER:
-        d = sq[sq["CauseCategory"] == cat]
-        if d.empty:
+    order = (weekly[["WeekKey", "CalendarWeek"]].drop_duplicates()
+             .sort_values("WeekKey")["CalendarWeek"].tolist())
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.62, 0.38], vertical_spacing=0.07)
+    for t in BATTERY_TYPES:
+        w = weekly[weekly["BatteryType"] == t]
+        if w.empty:
             continue
         fig.add_trace(go.Scatter(
-            x=d["WidthDelta"], y=d["LengthDelta"], mode="markers", name=cat,
-            marker=dict(size=9, color=CAUSE_COLORS[cat], line=dict(width=1.5, color="white")),
-            customdata=np.stack([d["PartID"], d["DeltaDiag"], d["AngleDevFL"]], axis=1),
-            hovertemplate="%{customdata[0]}<br>Width Δ %{x:+.2f} · Length Δ %{y:+.2f} mm"
-                          "<br>Diag Δ %{customdata[1]:.2f} mm · FL angle %{customdata[2]:+.2f}°<extra></extra>",
-        ))
-    fig.update_xaxes(title_text="Width delta: front minus rear (mm)", zeroline=True, zerolinecolor=INK["axis"],
-                     showgrid=True, gridcolor="rgba(137,135,129,0.15)")
-    fig.update_yaxes(title_text="Length delta: left minus right (mm)", zeroline=True, zerolinecolor=INK["axis"])
-    return _base(fig, 420)
+            x=w["CalendarWeek"], y=w["Share"], mode="lines+markers+text", name=f"{t} deformed %",
+            line=dict(color=TYPE_COLORS[t], width=2), marker=dict(size=8),
+            text=[f"{v:.0f}%" for v in w["Share"]], textposition="top center",
+            textfont=dict(size=10, color=INK["secondary"]), cliponaxis=False,
+            customdata=np.stack([w["Deformed"], w["N"], w["MedianDiag"]], axis=1),
+            hovertemplate=f"<b>{t}</b> %{{x}}<br>%{{y:.0f}}% deformed (%{{customdata[0]}} of %{{customdata[1]}})"
+                          "<br>median diagonal Δ %{customdata[2]:.2f} mm<extra></extra>",
+        ), row=1, col=1)
+    tot = (weekly.groupby(["WeekKey", "CalendarWeek"])[["Deformed", "N"]].sum()
+           .reset_index().sort_values("WeekKey"))
+    tot["Share"] = tot["Deformed"] / tot["N"] * 100
+    if len(tot) >= 3:
+        xi = np.arange(len(tot))
+        slope, icpt = np.polyfit(xi, tot["Share"], 1, w=np.sqrt(tot["N"]))
+        fig.add_trace(go.Scatter(
+            x=tot["CalendarWeek"], y=np.clip(icpt + slope * xi, 0, 100), mode="lines",
+            name=f"Trend, all types ({slope:+.1f} pp per week)",
+            line=dict(color=INK["secondary"], width=2, dash="dot"), hoverinfo="skip",
+        ), row=1, col=1)
+    fig.add_trace(go.Bar(
+        x=tot["CalendarWeek"], y=tot["Deformed"], name="Deformed (count)",
+        marker=dict(color=STATUS_COLORS["DEFORMED"], line=dict(width=0)), opacity=0.85,
+        hovertemplate="%{x}<br>%{y} deformed<extra></extra>"), row=2, col=1)
+    fig.add_trace(go.Bar(
+        x=tot["CalendarWeek"], y=tot["N"] - tot["Deformed"], name="Square (count)",
+        marker=dict(color="rgba(137,135,129,0.55)", line=dict(width=0)),
+        hovertemplate="%{x}<br>%{y} square<extra></extra>"), row=2, col=1)
+    fig.update_layout(barmode="stack", bargap=0.35)
+    fig.update_yaxes(title_text="Deformed (%)", range=[0, 115], row=1, col=1)
+    fig.update_yaxes(title_text="Modules", row=2, col=1)
+    _base(fig, 460)
+    _week_axis(fig, order)
+    return fig
+
+
+def fail_rate_by_band(by_band: pd.DataFrame, overall: float, diag_tol: float) -> go.Figure:
+    """NOK rate for each band of diagonal delta: does more deformation mean
+    more NOK?"""
+    if by_band.empty:
+        return empty()
+    grey = "rgba(137,135,129,0.75)"
+    colors = [STATUS_COLORS["DEFORMED"] if a else grey for a in by_band["AboveTol"]]
+    fig = go.Figure(go.Bar(
+        x=by_band["Label"], y=by_band["FailRate"], marker=dict(color=colors, line=dict(width=0)),
+        text=[f"{r:.0f}%  (N={n})" for r, n in zip(by_band["FailRate"], by_band["N"])],
+        textposition="outside", cliponaxis=False, showlegend=False,
+        customdata=by_band[["N"]],
+        hovertemplate="Diagonal Δ %{x} mm<br>NOK rate %{y:.0f}% of %{customdata[0]} modules<extra></extra>",
+    ))
+    fig.add_hline(y=overall, line_color=INK["secondary"], line_width=1.5, line_dash="dot",
+                  annotation_text=f"All modules {overall:.0f}%", annotation_position="top left",
+                  annotation_font=dict(size=11, color=INK["secondary"]))
+    for name, col in (("Square (below tolerance)", grey), (f"Deformed (≥ {diag_tol:g} mm)", STATUS_COLORS["DEFORMED"])):
+        fig.add_trace(go.Bar(x=[None], y=[None], name=name, marker_color=col, hoverinfo="skip"))
+    fig.update_xaxes(title_text="Diagonal delta (mm)", type="category")
+    fig.update_yaxes(title_text="NOK rate (%)", range=[0, 118])
+    fig.update_layout(bargap=0.35)
+    return _base(fig, 380)
 
 
 # ---------------------------------------------------------------------------
@@ -566,21 +655,40 @@ def weekly_fpy_compare(wk: pd.DataFrame) -> go.Figure:
     return _base(fig, 380)
 
 
-def overlay(bat_type: str, df: pd.DataFrame) -> go.Figure:
-    """Nominal vs average measured vs average compensated outline."""
+def overlay(bat_type: str, df: pd.DataFrame, exaggeration: float = 1.0, limit: float | None = None,
+            height: int = 540) -> go.Figure:
+    """Nominal vs average measured vs average compensated outline. The
+    deviations are magnified so the difference is visible."""
     fig = go.Figure()
     nom = nominal_points(bat_type)
     xs, ys = polygon(nom)
     fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", name="Nominal",
-                             line=dict(color=NOMINAL_COLOR, width=1.5, dash="dash"), hoverinfo="skip"))
+                             line=dict(color=NOMINAL_COLOR, width=2, dash="dash"), hoverinfo="skip"))
+    if limit:
+        eff = limit * exaggeration
+        bx, by = [], []
+        for cx, cy in nom.values():
+            bx += [cx - eff, cx + eff, cx + eff, cx - eff, cx - eff, None]
+            by += [cy - eff, cy - eff, cy + eff, cy + eff, cy - eff, None]
+        fig.add_trace(go.Scatter(x=bx, y=by, mode="lines", name=f"Tolerance ±{limit:g} mm",
+                                 line=dict(color="rgba(208,59,59,0.6)", width=1, dash="dot"),
+                                 hoverinfo="skip"))
     if not df.empty:
-        meas = {c: (nom[c][0] + df[f"{c}_X"].mean(), nom[c][1] + df[f"{c}_Y"].mean()) for c in CORNERS}
-        comp = {c: (nom[c][0] + df[f"{c}_X_Sim"].mean(), nom[c][1] + df[f"{c}_Y_Sim"].mean()) for c in CORNERS}
-        for name, pts, color in (("Measured (avg)", meas, OPTION_COLORS["No compensation"]),
-                                 ("Compensated (avg)", comp, OPTION_COLORS["Optimized"])):
+        for name, suffix, color in (("Measured (avg)", "", OPTION_COLORS["No compensation"]),
+                                    ("Compensated (avg)", "_Sim", OPTION_COLORS["Optimized"])):
+            dev = {c: (df[f"{c}_X{suffix}"].mean(), df[f"{c}_Y{suffix}"].mean()) for c in CORNERS}
+            pts = {c: (nom[c][0] + exaggeration * dev[c][0], nom[c][1] + exaggeration * dev[c][1])
+                   for c in CORNERS}
             xs, ys = polygon(pts)
-            fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines+markers", name=name,
-                                     line=dict(color=color, width=2), marker=dict(size=8)))
+            fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", name=name, legendgroup=name,
+                                     line=dict(color=color, width=2.5), hoverinfo="skip"))
+            fig.add_trace(go.Scatter(
+                x=[pts[c][0] for c in CORNERS], y=[pts[c][1] for c in CORNERS], mode="markers",
+                legendgroup=name, showlegend=False,
+                marker=dict(size=9, color=color, line=dict(width=1.5, color="white")),
+                customdata=[[c, dev[c][0], dev[c][1]] for c in CORNERS],
+                hovertemplate=f"<b>{name}</b> %{{customdata[0]}}<br>X %{{customdata[1]:+.2f}} · "
+                              f"Y %{{customdata[2]:+.2f}} mm<extra></extra>"))
     fig.update_yaxes(scaleanchor="x", scaleratio=1, autorange="reversed", title_text="Global Y (mm)")
-    fig.update_xaxes(title_text="Global X (mm)")
-    return _base(fig, 380)
+    fig.update_xaxes(title_text="Global X (mm)", showgrid=True, gridcolor="rgba(137,135,129,0.15)")
+    return _base(fig, height)

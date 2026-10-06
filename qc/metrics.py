@@ -227,6 +227,82 @@ def findings(
     return out[:8]
 
 
+def fisher_exact(a: int, b: int, c: int, d: int) -> float:
+    """Two-sided Fisher exact test p-value for the 2x2 table [[a, b], [c, d]]."""
+    from math import exp, lgamma
+
+    def lchoose(n, k):
+        return lgamma(n + 1) - lgamma(k + 1) - lgamma(n - k + 1)
+
+    r1, c1, n = a + b, a + c, a + b + c + d
+    if n == 0:
+        return float("nan")
+    lo, hi = max(0, r1 + c1 - n), min(r1, c1)
+    denom = lchoose(n, r1)
+
+    def p(x):
+        return exp(lchoose(c1, x) + lchoose(n - c1, r1 - x) - denom)
+
+    p_obs = p(a)
+    return float(min(1.0, sum(p(x) for x in range(lo, hi + 1) if p(x) <= p_obs * (1 + 1e-7))))
+
+
+DIAG_BANDS = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, np.inf]
+
+
+def shape_link(sq: pd.DataFrame, diag_tol: float) -> dict:
+    """How deformation relates to NOK, for complete modules that were
+    PASS or FAIL (``sq`` = output of geometry.decompose)."""
+    d = sq[sq["Status"].isin(["PASS", "FAIL"])]
+    out: dict = {"n": len(d)}
+    if d.empty:
+        return out
+    fail = d["Status"] == "FAIL"
+    deformed = d["SquarenessStatus"] == "DEFORMED"
+    a, b = int((deformed & fail).sum()), int((deformed & ~fail).sum())
+    c, e = int((~deformed & fail).sum()), int((~deformed & ~fail).sum())
+    out.update({
+        "n_fail": int(fail.sum()),
+        "fail_rate_deformed": a / (a + b) * 100 if a + b else np.nan,
+        "fail_rate_square": c / (c + e) * 100 if c + e else np.nan,
+        "n_deformed": a + b, "n_square": c + e,
+        "p_value": fisher_exact(a, b, c, e),
+        "nok_if_square": int((fail & d["PassIfSquare"]).sum()),
+        "pass_lost_if_square": int((~fail & ~d["PassIfSquare"]).sum()),
+        "shape_alone": int((fail & ~d["PassIfPlaced"]).sum()),
+        "shape_median_pass": float(d.loc[~fail, "ShapeMax"].median()) if (~fail).any() else np.nan,
+        "shape_median_fail": float(d.loc[fail, "ShapeMax"].median()) if fail.any() else np.nan,
+        "shape_median": float(d["ShapeMax"].median()),
+    })
+    out["fpy"] = (~fail).mean() * 100
+    out["fpy_if_square"] = d["PassIfSquare"].mean() * 100
+    causes = d[fail].groupby(["BatteryType", "NokCause"]).size().unstack(fill_value=0)
+    out["causes"] = causes
+    bands = pd.cut(d["DeltaDiag"], DIAG_BANDS, right=False)
+    by_band = (d.assign(Band=bands, Fail=fail).groupby("Band", observed=True)
+               .agg(N=("Fail", "size"), FailRate=("Fail", "mean")).reset_index())
+    by_band["FailRate"] *= 100
+    by_band["Label"] = [f"{iv.left:g}–{iv.right:g}" if np.isfinite(iv.right) else f"≥ {iv.left:g}"
+                        for iv in by_band["Band"]]
+    by_band["AboveTol"] = [iv.left >= diag_tol for iv in by_band["Band"]]
+    out["by_band"] = by_band
+    return out
+
+
+def weekly_deformation(sq: pd.DataFrame) -> pd.DataFrame:
+    """Deformed share per week and battery type."""
+    if sq.empty:
+        return pd.DataFrame(columns=["WeekKey", "CalendarWeek", "BatteryType", "N", "Deformed", "Share", "MedianDiag"])
+    g = sq.groupby(["WeekKey", "CalendarWeek", "BatteryType"])
+    w = pd.DataFrame({
+        "N": g.size(),
+        "Deformed": g["SquarenessStatus"].apply(lambda s: int((s == "DEFORMED").sum())),
+        "MedianDiag": g["DeltaDiag"].median(),
+    }).reset_index().sort_values("WeekKey")
+    w["Share"] = w["Deformed"] / w["N"] * 100
+    return w.reset_index(drop=True)
+
+
 def kpi_summary_table(first: pd.DataFrame, exclude_incomplete: bool) -> pd.DataFrame:
     counts = status_counts(first)
     total = len(first)

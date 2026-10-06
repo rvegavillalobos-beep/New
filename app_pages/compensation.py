@@ -42,11 +42,11 @@ with ctl[2]:
                        help="The optimizer prefers settings where modules pass with at least this much "
                             "room on every corner, so the result doesn't rely on modules that barely pass. "
                             "0 = maximize FPY at the limit only.")
-with ctl[3]:
-    with st.popover("More", icon=":material/settings:", width="stretch"):
-        method = st.radio("Median-based uses", ["Median", "Mean"], key=ui.init("p_method", "Median"),
-                          horizontal=True)
-        min_n = st.number_input("Minimum modules to trust a result", 5, 500, step=5, key=ui.init("p_min_n", 30))
+more = ctl[3].popover("More", icon=":material/settings:", width="stretch")
+with more:
+    method = st.radio("Median-based uses", ["Median", "Mean"], key=ui.init("p_method", "Median"),
+                      horizontal=True)
+    min_n = st.number_input("Minimum modules to trust a result", 5, 500, step=5, key=ui.init("p_min_n", 30))
 
 df = vec_t[vec_t["WeekKey"].isin(weeks[-int(n_weeks):])]
 ui.require_rows(df)
@@ -111,82 +111,98 @@ for col, (_, r) in zip(k, table.iterrows()):
     col.metric(r["Option"], ui.fmt_pct(r["FPY"]), delta, border=True,
                help=f"X {r['X (mm)']:+.2f} mm · Y {r['Y (mm)']:+.2f} mm · yaw {r['Yaw (°)']:+.3f}°")
 
-# Verdict from the backtest (one module = smallest meaningful difference).
-if bt is not None:
-    step = 100 / bt["n"]
-    b_none, b_med, b_opt = bt["none"], bt["median"], bt["optimized"]
-    if max(b_med, b_opt) - b_none < step - 1e-9:
-        st.warning(f"**Backtest:** on {bt['label']} neither method would have raised FPY "
-                   f"({b_none:.1f}% without · median {b_med:.1f}% · optimized {b_opt:.1f}%). "
-                   "The in-window gains above come from fitting these same modules.",
-                   icon=":material/balance:")
-    elif b_opt >= b_med + step - 1e-9:
-        st.success(f"**Backtest:** the optimized setting held up best on {bt['label']}: "
-                   f"{b_opt:.1f}% vs median {b_med:.1f}% and {b_none:.1f}% without compensation.",
-                   icon=":material/verified:")
-    elif b_med >= b_opt + step - 1e-9:
-        st.info(f"**Backtest:** median-based held up best on {bt['label']}: {b_med:.1f}% vs optimized "
-                f"{b_opt:.1f}% and {b_none:.1f}% without. The optimizer's extra in-window gain did not "
-                "repeat on new modules: it fitted the sample.", icon=":material/balance:")
-    else:
-        st.info(f"**Backtest:** median-based and optimized did the same on {bt['label']} "
-                f"({b_med:.1f}% vs {b_opt:.1f}%; {b_none:.1f}% without). The optimizer's extra in-window "
-                "gain did not carry over yet; with more modules per week it may.", icon=":material/balance:")
-else:
-    st.caption("No backtest yet: it needs earlier weeks with at least 10 modules. The in-window FPY "
-               "above is optimistic, especially for the optimized setting.")
-
-left, right = st.columns([3, 2], gap="large")
-with left:
-    st.dataframe(
-        table, hide_index=True, width="stretch",
-        column_config={
-            "X (mm)": st.column_config.NumberColumn(format="%+.2f"),
-            "Y (mm)": st.column_config.NumberColumn(format="%+.2f"),
-            "Yaw (°)": st.column_config.NumberColumn(format="%+.3f"),
-            "FPY": st.column_config.ProgressColumn("FPY", format="%.1f%%", min_value=0, max_value=100),
-            "FPY with margin": st.column_config.ProgressColumn(
-                f"Pass with {margin:.2f} mm room", format="%.1f%%", min_value=0, max_value=100,
-                help="Modules that would pass even with every corner limit tightened by the safety margin."),
-            "Backtest": st.column_config.NumberColumn(
-                "Backtest", format="%.1f%%",
-                help="Replays recent weeks as if the method had been in use: each week gets the setting "
-                     "computed from the weeks before it, never from itself. The honest estimate of "
-                     "what to expect on the line."),
-        },
-    )
-    if bt is not None:
-        st.caption(f"**Backtest**: each of {bt['n_weeks']} weeks ({bt['label']}, {bt['n']} modules) got the "
-                   f"setting computed from the {int(n_weeks)} weeks before it. *FPY* is measured on the same "
-                   "modules the setting was computed from, so it is optimistic.")
-    else:
-        st.caption("**Backtest** needs earlier weeks with at least 10 modules before the weeks it tests.")
-
-with right:
+# Engineering view (kept in the "More" menu, not on the page).
+with more:
+    st.divider()
     items = comp.readiness(df, min_n=int(min_n), bt=bt)
     ready = all(i["ok"] for i in items)
-    with st.container(border=True):
-        h1, h2 = st.columns([3, 1.3], vertical_alignment="center")
-        h1.markdown("**Ready to apply on the line?**")
-        h2.badge("Ready" if ready else "Not yet", color="green" if ready else "orange",
-                 icon=":material/check:" if ready else ":material/hourglass_top:")
-        for i in items:
-            icon = ":green[:material/check_circle:]" if i["ok"] else ":orange[:material/radio_button_unchecked:]"
-            st.markdown(f"{icon}&nbsp; **{i['check']}**: {i['detail']}")
+    h1, h2 = st.columns([3, 1.3], vertical_alignment="center")
+    h1.markdown("**Ready to apply on the line?**")
+    h2.badge("Ready" if ready else "Not yet", color="green" if ready else "orange",
+             icon=":material/check:" if ready else ":material/hourglass_top:")
+    for i in items:
+        icon = ":green[:material/check_circle:]" if i["ok"] else ":orange[:material/radio_button_unchecked:]"
+        st.markdown(f"{icon}&nbsp; **{i['check']}**: {i['detail']}")
+    if bt is not None:
+        step = 100 / bt["n"]
+        b_none, b_med, b_opt = bt["none"], bt["median"], bt["optimized"]
+        if max(b_med, b_opt) - b_none < step - 1e-9:
+            verdict = (f"neither method would have raised FPY on {bt['label']} ({b_none:.1f}% without · "
+                       f"median {b_med:.1f}% · optimized {b_opt:.1f}%).")
+        elif b_opt >= b_med + step - 1e-9:
+            verdict = (f"the optimized setting held up best on {bt['label']}: {b_opt:.1f}% vs median "
+                       f"{b_med:.1f}% and {b_none:.1f}% without.")
+        elif b_med >= b_opt + step - 1e-9:
+            verdict = (f"median-based held up best on {bt['label']}: {b_med:.1f}% vs optimized {b_opt:.1f}% "
+                       f"and {b_none:.1f}% without; the optimizer's extra in-window gain fitted the sample.")
+        else:
+            verdict = (f"median-based and optimized did the same on {bt['label']} ({b_med:.1f}% vs "
+                       f"{b_opt:.1f}%; {b_none:.1f}% without); the optimizer's extra in-window gain did not "
+                       "carry over yet.")
+        st.markdown(f"**Backtest:** {verdict}")
 
-# ---- Why the optimized setting differs -----------------------------------------------
+st.dataframe(
+    table, hide_index=True, width="stretch",
+    column_config={
+        "X (mm)": st.column_config.NumberColumn(format="%+.2f"),
+        "Y (mm)": st.column_config.NumberColumn(format="%+.2f"),
+        "Yaw (°)": st.column_config.NumberColumn(format="%+.3f"),
+        "FPY": st.column_config.ProgressColumn("FPY", format="%.1f%%", min_value=0, max_value=100),
+        "FPY with margin": st.column_config.ProgressColumn(
+            f"Pass with {margin:.2f} mm room", format="%.1f%%", min_value=0, max_value=100,
+            help="Modules that would pass even with every corner limit tightened by the safety margin."),
+        "Backtest": st.column_config.NumberColumn(
+            "Backtest", format="%.1f%%",
+            help="Replays recent weeks as if the method had been in use: each week gets the setting "
+                 "computed from the weeks before it, never from itself. The honest estimate of "
+                 "what to expect on the line."),
+    },
+)
+if bt is not None:
+    st.caption(f"**Backtest**: each of {bt['n_weeks']} weeks ({bt['label']}, {bt['n']} modules) got the "
+               f"setting computed from the {int(n_weeks)} weeks before it. *FPY* is measured on the same "
+               "modules the setting was computed from, so it is optimistic.")
+else:
+    st.caption("**Backtest** needs earlier weeks with at least 10 modules before the weeks it tests.")
+
+# ---- Before vs after (average outline) ---------------------------------------------
 pick_opts = [o for o in ("Optimized", "Median-based", "Manual") if o in options]
 if not pick_opts:
     st.info("No module in this window has all four corners measured, so no compensation can be "
             "computed. Widen the window or the calendar weeks.")
     st.stop()
 ui.ensure_option("p_comp_view", pick_opts, "Manual" if manual_on else pick_opts[0])
-st.markdown("##### Inspect a setting")
-view = st.segmented_control("Show details for", pick_opts, key="p_comp_view",
-                            label_visibility="collapsed") or pick_opts[0]
+st.markdown("##### Before vs after")
+sel_c, mag_c = st.columns([2, 1], vertical_alignment="bottom")
+with sel_c:
+    view = st.segmented_control("Compensation shown", pick_opts, key="p_comp_view") or pick_opts[0]
+with mag_c:
+    st.slider("Deviation magnification", 1, 60, step=1, key=ui.init("p_cp_exag", 25))
 dx, dy, yw = options[view]
+sim = geometry.simulate_compensation(df, dx, dy, yw, spec, incomplete_as_fail=c.settings.exclude_incomplete)
+sim = pd.concat([sim, geometry.sim_geometry(sim)], axis=1)
+
+left, right = st.columns([3, 1.3], gap="large")
+with left:
+    st.plotly_chart(charts.overlay(t, sim, st.session_state["p_cp_exag"], spec, height=580),
+                    width="stretch", key="cp_overlay")
+    st.caption(f"Average corner position of the {len(df)} modules, measured vs with the {view.lower()} "
+               f"compensation (X {dx:+.2f} mm · Y {dy:+.2f} mm · yaw {yw:+.3f}°). Deviations and tolerance "
+               f"boxes magnified ×{st.session_state['p_cp_exag']}; hover a corner for its values.")
+with right:
+    st.markdown("**Shift of each corner**")
+    off = geometry.corner_offsets(t, dx, dy, yw)
+    st.dataframe(off.drop(columns="BatteryType"), hide_index=True, width="stretch",
+                 column_config={"Offset_X_mm": st.column_config.NumberColumn("X (mm)", format="%+.2f"),
+                                "Offset_Y_mm": st.column_config.NumberColumn("Y (mm)", format="%+.2f")})
+    st.caption("They follow from one X / Y shift plus one rotation about the module center.")
+    st.markdown("**Status change**")
+    trans = sim.groupby(["Status", "Status_Sim"]).size().unstack(fill_value=0)
+    trans.index.name, trans.columns.name = "Measured", "With comp."
+    st.dataframe(trans, width="stretch")
 
 if res is not None:
+    st.markdown("##### Why this setting")
     left, right = st.columns(2, gap="large")
     with left:
         st.markdown("**FPY as yaw changes**")
@@ -206,35 +222,15 @@ if res is not None:
                    "one on the edge of a cliff is not. Only settings with this same yaw are marked.")
 
 # ---- Details --------------------------------------------------------------------------
-sim = geometry.simulate_compensation(df, dx, dy, yw, spec, incomplete_as_fail=c.settings.exclude_incomplete)
-sim = pd.concat([sim, geometry.sim_geometry(sim)], axis=1)
 st.session_state.setdefault("_comp_export", {})[t] = {
     "window": win_label, "modules": len(df), "margin_mm": margin, "table": table,
     "offsets": geometry.corner_offsets(t, dx, dy, yw), "inspected": view, "sim": sim,
 }
 
 st.markdown(f"##### Details · {view} (X {dx:+.2f} mm · Y {dy:+.2f} mm · yaw {yw:+.3f}°)")
-tab1, tab2, tab3, tab5, tab4 = st.tabs(["Per-corner offsets", "Before vs after", "By week", "Backtest", "Modules"])
-with tab1:
-    off = geometry.corner_offsets(t, dx, dy, yw)
-    l, r = st.columns([1, 2], gap="large")
-    l.dataframe(off.drop(columns="BatteryType"), hide_index=True, width="stretch",
-                column_config={"Offset_X_mm": st.column_config.NumberColumn("X shift (mm)", format="%+.3f"),
-                               "Offset_Y_mm": st.column_config.NumberColumn("Y shift (mm)", format="%+.3f")})
-    r.caption("How far each nominal corner moves under this rigid correction. They are not "
-              "independent: they follow from one X / Y shift plus one rotation about the module center.")
+tab2, tab3, tab5, tab4 = st.tabs(["Module centers", "By week", "Backtest", "Modules"])
 with tab2:
-    l, r = st.columns(2, gap="large")
-    with l:
-        st.markdown("**Module center, measured vs compensated**")
-        st.plotly_chart(charts.centroid_before_after(sim), width="stretch", key="cp_ba")
-    with r:
-        st.markdown("**Average outline**")
-        st.plotly_chart(charts.overlay(t, sim), width="stretch", key="cp_overlay")
-    trans = sim.groupby(["Status", "Status_Sim"]).size().unstack(fill_value=0)
-    trans.index.name, trans.columns.name = "Measured", "With compensation"
-    st.markdown("**Status change** (rows: measured, columns: with compensation)")
-    st.dataframe(trans, width="content")
+    st.plotly_chart(charts.centroid_before_after(sim), width="stretch", key="cp_ba")
 with tab3:
     wk = (sim.groupby(["WeekKey", "CalendarWeek"])
           .apply(lambda g: pd.Series({"Real": (g["Status"] == "PASS").mean() * 100,

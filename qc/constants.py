@@ -68,9 +68,19 @@ INK = {
     "axis": "#c3c2b7",
 }
 LIMIT_COLOR = "#d03b3b"
-NOMINAL_COLOR = "#52514e"
+NOMINAL_COLOR = "#16a34a"  # nominal outlines: green dashed, as in the original app
 TARGET_COLOR = "#0ca30c"
 HIGHLIGHT_COLOR = "#00b8d9"
+
+# Why a NOK module failed (placement vs shape decomposition).
+NOK_CAUSE_ORDER = ["Placement", "Shape + placement", "Shape", "Both"]
+NOK_CAUSE_COLORS = {
+    "Placement": "#2a78d6",
+    "Shape + placement": "#eda100",
+    "Shape": "#e87ba4",
+    "Both": "#4a3aa7",
+}
+MA_COLOR = "#f59e0b"  # moving average: amber dashed, as in the original app
 
 # Compensation candidates (identity colors for the three options).
 OPTION_COLORS = {

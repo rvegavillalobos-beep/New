@@ -17,12 +17,12 @@ Or open the repo in GitHub Codespaces: the dev container installs everything and
 
 | Page | What it answers |
 |---|---|
-| **Overview** | FPY against target, per battery type and per week; automatic findings; which corner and axis cause NOK. |
+| **Overview** | FPY against target with the value of every week, MA3 trend, week-by-week table, first run per battery type with totals, which corner and axis cause NOK. Automatic findings behind the discreet wand button next to the title. |
 | **Corners** | Where each corner lands (cloud inside the tolerance box), capability (mean, σ, Cpk) and whether each corner/axis has an *offset* (fixable by compensation) or *scatter* (not fixable by an offset). Deviation trends. |
-| **Geometry** | Every module drawn against nominal with magnified deviations and tolerance zones; focus on one module to see its corners, squareness and run history. |
-| **Squareness** | Deformed share, deformation pattern, a width-vs-length deformation map, and a module table (select a row to open it in Geometry). |
+| **Geometry** | Every module drawn against the green nominal with magnified deviations and tolerance zones. Each module is a legend entry: click to hide, double-click to isolate; filter by status. A focused module shows its corner values on the drawing plus diagonal, width, length and angle deltas. |
+| **Squareness** | Links deformation to NOK: splits each module into placement and shape, counts the NOK that would have passed if the module were perfectly square, NOK rate by amount of deformation, deformed vs square test, weekly deformation trend, deformation pattern, and a module table with pass/fail. |
 | **Drift** | Weekly path of the module center, weekly median offset and yaw, yaw per module. |
-| **Compensation** | Median-based vs FPY-optimized vs your own X / Y / yaw, simulated FPY, a week-by-week **backtest**, a readiness checklist, FPY-vs-yaw and X/Y maps. |
+| **Compensation** | Median-based vs FPY-optimized vs your own X / Y / yaw, simulated FPY, the average outline before vs after (magnified), FPY-vs-yaw and X/Y maps, a week-by-week **backtest**. The readiness checklist and backtest verdict sit in the **More** menu. |
 | **Data & export** | Data-quality report (duplicates, look-alike IDs, failed reads, time-zone notes) and the full Excel report. |
 
 Filters (battery type, calendar weeks) and rules (tolerance, FPY target, diagonal limit, incomplete-as-NOK) live in the sidebar and apply to every page.

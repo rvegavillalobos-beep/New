@@ -104,8 +104,9 @@ def build_report(runs, weekly, pareto, cap, sq, vec, comp_rows, offsets, sims, k
 
 
 kpi = metrics.kpi_summary_table(a.first, s.exclude_incomplete)
-sq_cols = ["Date", "CalendarWeek", "PartID", "RunNum", "BatteryType", "Diag1", "Diag2", "DeltaDiag",
-           "WidthDelta", "LengthDelta", "AngleDevFL", "SquarenessStatus", "RootCause"]
+sq_cols = ["Date", "CalendarWeek", "PartID", "RunNum", "BatteryType", "Status", "Diag1", "Diag2", "DeltaDiag",
+           "WidthDelta", "LengthDelta", "AngleDevFL", "SquarenessStatus", "RootCause", "PlacementMax",
+           "ShapeMax", "PassIfSquare", "NokCause"]
 vec_cols = ["Date", "CalendarWeek", "PartID", "BatteryType", "Centroid_X", "Centroid_Y",
             "Vector_Magnitude", "Rotation_Angle", "Status"]
 exp = st.session_state.get("_comp_export", {})

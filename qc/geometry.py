@@ -284,6 +284,61 @@ def corner_offsets(bat_type, dx, dy, yaw) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Placement vs shape
+# ---------------------------------------------------------------------------
+
+def decompose(df: pd.DataFrame, spec_limit: float) -> pd.DataFrame:
+    """Split each complete module's corner deviations into placement and shape.
+
+    Placement: the rigid move (X/Y shift + rotation) that best explains the
+    four corners in a least-squares sense. Shape: what is left, the part of
+    the deviation no placement can remove (the module itself is not square).
+
+    Adds, per module:
+      PlacementMax  largest |X| or |Y| deviation if the module were perfectly
+                    square but placed exactly as it was (mm)
+      ShapeMax      largest |X| or |Y| shape residual, i.e. tolerance the
+                    shape uses up whatever the placement (mm)
+      PassIfSquare  would pass with the same placement and a perfect shape
+      PassIfPlaced  would pass with its shape and a perfect placement
+      NokCause      for FAIL modules: "Placement" (fails even if square),
+                    "Shape + placement" (would pass if square: the shape ate
+                    the margin), "Shape" (fails even if perfectly placed and
+                    not when square), "Both" (fails from each on its own);
+                    "" otherwise
+    """
+    d = df[is_complete(df)].copy()
+    cols = ["PlacementMax", "ShapeMax", "PassIfSquare", "PassIfPlaced", "NokCause"]
+    if d.empty:
+        return d.assign(**{c: pd.Series(dtype=float) for c in cols})
+    nom = _nominal_arrays(d["BatteryType"])
+    nx = np.stack([nom[f"{c}_X"] for c in CORNERS], axis=1)  # (n, 4)
+    ny = np.stack([nom[f"{c}_Y"] for c in CORNERS], axis=1)
+    ax = nx + np.stack([_dev(d, f"{c}_X") for c in CORNERS], axis=1)
+    ay = ny + np.stack([_dev(d, f"{c}_Y") for c in CORNERS], axis=1)
+    ncx, ncy = nx.mean(1, keepdims=True), ny.mean(1, keepdims=True)
+    acx, acy = ax.mean(1, keepdims=True), ay.mean(1, keepdims=True)
+    n0x, n0y, a0x, a0y = nx - ncx, ny - ncy, ax - acx, ay - acy
+    theta = np.arctan2((n0x * a0y - n0y * a0x).sum(1), (n0x * a0x + n0y * a0y).sum(1))[:, None]
+    c, s = np.cos(theta), np.sin(theta)
+    fx = n0x * c - n0y * s + acx  # best-fit placement of the nominal shape
+    fy = n0x * s + n0y * c + acy
+    placement = np.maximum(np.abs(fx - nx), np.abs(fy - ny)).max(1)
+    shape = np.maximum(np.abs(ax - fx), np.abs(ay - fy)).max(1)
+    d["PlacementMax"] = placement
+    d["ShapeMax"] = shape
+    d["PassIfSquare"] = placement <= spec_limit
+    d["PassIfPlaced"] = shape <= spec_limit
+    fail = (d["Status"] == "FAIL").to_numpy() if "Status" in d else np.zeros(len(d), bool)
+    sq, pl = d["PassIfSquare"].to_numpy(), d["PassIfPlaced"].to_numpy()
+    d["NokCause"] = np.where(
+        ~fail, "",
+        np.where(sq & pl, "Shape + placement",
+                 np.where(sq & ~pl, "Shape", np.where(~sq & pl, "Placement", "Both"))))
+    return d
+
+
+# ---------------------------------------------------------------------------
 # Plot helpers
 # ---------------------------------------------------------------------------
 

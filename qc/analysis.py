@@ -30,7 +30,7 @@ class Analysis:
     runs: pd.DataFrame        # every run in scope, with status
     first: pd.DataFrame       # first run of every module in scope
     vec: pd.DataFrame         # first runs + centroid / yaw
-    squareness: pd.DataFrame  # complete runs in scope + deformation metrics
+    squareness: pd.DataFrame  # complete runs in scope + deformation + placement/shape split
     weekly: pd.DataFrame      # weekly first-run FPY
     pareto: pd.DataFrame
     capability: pd.DataFrame
@@ -65,7 +65,7 @@ def analyze(summary: pd.DataFrame, settings: Settings, scope: Scope, ma_window: 
     runs = _in_scope(runs_all, scope).reset_index(drop=True)
     first = _in_scope(first_all, scope).reset_index(drop=True)
     vec = geometry.add_centroid_and_rotation(first)
-    sq = geometry.squareness(runs, settings.diag_tol)
+    sq = geometry.decompose(geometry.squareness(runs, settings.diag_tol), settings.spec_limit)
     weekly = metrics.weekly_fpy(first, ma_window)
     pareto = metrics.failure_pareto(first, settings.spec_limit)
     cap = metrics.capability(first, settings.spec_limit)
@@ -74,6 +74,6 @@ def analyze(summary: pd.DataFrame, settings: Settings, scope: Scope, ma_window: 
 
 
 def findings(a: Analysis) -> list[dict]:
-    first_sq = a.squareness[a.squareness["RunNum"] == 1] if not a.squareness.empty else a.squareness
-    return metrics.findings(a.first, a.weekly, a.pareto, a.capability, first_sq,
+    """Findings for the Overview (FPY, trend, NOK causes, offsets / scatter)."""
+    return metrics.findings(a.first, a.weekly, a.pareto, a.capability, None,
                             a.settings.fpy_target, a.settings.spec_limit)
