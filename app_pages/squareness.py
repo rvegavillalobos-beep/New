@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from qc import charts, metrics, ui
+from qc import charts, geometry, metrics, ui
 from qc.constants import CAUSE_COLORS, CAUSE_ORDER, NOK_CAUSE_COLORS, NOK_CAUSE_ORDER, STATUS_COLORS
 
 c = ui.ctx()
@@ -15,6 +15,8 @@ ui.scope_line(c)
 
 sq = a.squareness
 ui.require_rows(sq, "complete measurements (all four corners)")
+if "PassIfSquare" not in sq.columns:  # result cached by an older version of the app
+    sq = geometry.decompose(sq, limit)
 
 ui.ensure_option("p_sq_scope", ["First run", "All runs"], "First run")
 scope = st.segmented_control("Measurements", ["First run", "All runs"], key="p_sq_scope") or "First run"

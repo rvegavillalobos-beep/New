@@ -672,7 +672,7 @@ def overlay(bat_type: str, df: pd.DataFrame, exaggeration: float = 1.0, limit: f
             by += [cy - eff, cy - eff, cy + eff, cy + eff, cy - eff, None]
         fig.add_trace(go.Scatter(x=bx, y=by, mode="lines", name=f"Tolerance ±{limit:g} mm",
                                  line=dict(color="rgba(208,59,59,0.6)", width=1, dash="dot"),
-                                 hoverinfo="skip"))
+                                 hoverinfo="skip", visible="legendonly"))
     if not df.empty:
         for name, suffix, color in (("Measured (avg)", "", OPTION_COLORS["No compensation"]),
                                     ("Compensated (avg)", "_Sim", OPTION_COLORS["Optimized"])):

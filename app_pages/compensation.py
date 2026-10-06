@@ -182,24 +182,14 @@ dx, dy, yw = options[view]
 sim = geometry.simulate_compensation(df, dx, dy, yw, spec, incomplete_as_fail=c.settings.exclude_incomplete)
 sim = pd.concat([sim, geometry.sim_geometry(sim)], axis=1)
 
-left, right = st.columns([3, 1.3], gap="large")
-with left:
-    st.plotly_chart(charts.overlay(t, sim, st.session_state["p_cp_exag"], spec, height=580),
+_, mid, _ = st.columns([1, 3, 1])
+with mid:
+    st.plotly_chart(charts.overlay(t, sim, st.session_state["p_cp_exag"], spec, height=600),
                     width="stretch", key="cp_overlay")
     st.caption(f"Average corner position of the {len(df)} modules, measured vs with the {view.lower()} "
-               f"compensation (X {dx:+.2f} mm · Y {dy:+.2f} mm · yaw {yw:+.3f}°). Deviations and tolerance "
-               f"boxes magnified ×{st.session_state['p_cp_exag']}; hover a corner for its values.")
-with right:
-    st.markdown("**Shift of each corner**")
-    off = geometry.corner_offsets(t, dx, dy, yw)
-    st.dataframe(off.drop(columns="BatteryType"), hide_index=True, width="stretch",
-                 column_config={"Offset_X_mm": st.column_config.NumberColumn("X (mm)", format="%+.2f"),
-                                "Offset_Y_mm": st.column_config.NumberColumn("Y (mm)", format="%+.2f")})
-    st.caption("They follow from one X / Y shift plus one rotation about the module center.")
-    st.markdown("**Status change**")
-    trans = sim.groupby(["Status", "Status_Sim"]).size().unstack(fill_value=0)
-    trans.index.name, trans.columns.name = "Measured", "With comp."
-    st.dataframe(trans, width="stretch")
+               f"compensation (X {dx:+.2f} mm · Y {dy:+.2f} mm · yaw {yw:+.3f}°), deviations magnified "
+               f"×{st.session_state['p_cp_exag']}. Hover a corner for its values; click *Tolerance* in the "
+               "legend to show the tolerance boxes.")
 
 if res is not None:
     st.markdown("##### Why this setting")

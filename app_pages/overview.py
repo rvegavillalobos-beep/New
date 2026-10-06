@@ -48,36 +48,40 @@ if st.session_state["p_insights"]:
         else:
             st.caption("Not enough data for findings.")
 
-# ---- Trend, weekly table | by type, why NOK -------------------------------------
-left, right = st.columns([2, 1], gap="large")
+# ---- Weekly FPY next to the battery-type split ------------------------------------
+head, opts = st.columns([6, 1], vertical_alignment="bottom")
+head.markdown("##### Weekly first-pass yield")
+with opts.popover("Options", icon=":material/tune:", width="stretch"):
+    st.slider("Moving average (weeks)", 2, 10, step=1, key="p_ma")
+
+left, right = st.columns([2, 1], gap="large", vertical_alignment="center")
 with left:
-    head, opts = st.columns([4, 1], vertical_alignment="bottom")
-    head.markdown("##### Weekly first-pass yield")
-    with opts.popover("Options", icon=":material/tune:", width="stretch"):
-        st.slider("Moving average (weeks)", 2, 10, step=1, key="p_ma")
     st.plotly_chart(charts.weekly_fpy(a.weekly, s.fpy_target, c.ma_window, not s.exclude_incomplete),
                     width="stretch", key="ov_weekly")
-    if a.weekly["LowSample"].any():
-        st.caption("\\* and hollow points: weeks with fewer than 5 modules, where FPY swings are mostly noise.")
-
-    wk = a.weekly.copy()
-    cols = (["CalendarWeek", "Total", "Passed", "Failed"]
-            + (["Incomplete"] if not s.exclude_incomplete else []) + ["PassRate", "MA_FPY"])
-    wk = wk[cols].iloc[::-1]
-    st.dataframe(
-        wk, hide_index=True, width="stretch", height=min(400, 38 + 35 * len(wk)),
-        column_config={
-            "CalendarWeek": "Week", "Total": "Modules", "Passed": "OK", "Failed": "NOK",
-            "PassRate": st.column_config.ProgressColumn("FPY", format="%.1f%%", min_value=0, max_value=100),
-            "MA_FPY": st.column_config.NumberColumn(f"MA{c.ma_window}", format="%.1f%%"),
-        },
-    )
-
 with right:
-    st.markdown("##### First run by battery type")
+    st.markdown("**First run by battery type**")
     st.plotly_chart(charts.status_by_type(first), width="stretch", key="ov_bytype")
+if a.weekly["LowSample"].any():
+    st.caption("\\* and hollow points: weeks with fewer than 5 modules, where FPY swings are mostly noise.")
 
-    st.markdown("##### Why modules fail")
+# ---- Week by week -------------------------------------------------------------------
+wk = a.weekly.copy()
+cols = (["CalendarWeek", "Total", "Passed", "Failed"]
+        + (["Incomplete"] if not s.exclude_incomplete else []) + ["PassRate", "MA_FPY"])
+wk = wk[cols].iloc[::-1]
+st.dataframe(
+    wk, hide_index=True, width="stretch", height=min(400, 38 + 35 * len(wk)),
+    column_config={
+        "CalendarWeek": "Week", "Total": "Modules", "Passed": "OK", "Failed": "NOK",
+        "PassRate": st.column_config.ProgressColumn("FPY", format="%.1f%%", min_value=0, max_value=100),
+        "MA_FPY": st.column_config.NumberColumn(f"MA{c.ma_window}", format="%.1f%%"),
+    },
+)
+
+# ---- Why modules fail (end of page) -----------------------------------------------
+st.markdown("##### Why modules fail")
+_, mid, _ = st.columns([1, 3, 1])
+with mid:
     st.plotly_chart(charts.failure_pareto(a.pareto, counts["FAIL"]), width="stretch", key="ov_pareto")
     st.caption("Corner and axis out of tolerance, as a share of NOK modules (a module can count in "
                "several bars). **Corners** shows whether each is an offset or scatter.")

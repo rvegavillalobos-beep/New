@@ -5,8 +5,10 @@ Pages call ``ctx()`` to get the same filtered analysis the sidebar defines.
 
 from __future__ import annotations
 
+import hashlib
 import io
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -88,31 +90,66 @@ def scope_line(c: "Context") -> None:
 # Cached computations
 # ---------------------------------------------------------------------------
 
+def _code_version() -> str:
+    """Fingerprint of the analysis code. Passed to every cached function so
+    a deployment with changed logic never reuses results computed by the
+    previous version (Streamlit only keys its cache on the cached function's
+    own code, not on the code it calls)."""
+    h = hashlib.sha1()
+    for f in sorted(Path(__file__).parent.glob("*.py")):
+        h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
+CODE_VERSION = _code_version()
+
+
 @st.cache_data(show_spinner="Reading measurements…", max_entries=6)
-def load(data: bytes, name: str, src_tz: str, disp_tz: str, merge_ids: bool,
-         zero_missing: bool) -> loading.LoadedData:
+def _load(data: bytes, name: str, src_tz: str, disp_tz: str, merge_ids: bool,
+          zero_missing: bool, code_version: str) -> loading.LoadedData:
     return loading.build_dataset(data, name, src_tz, disp_tz, merge_ids, zero_missing)
 
 
+def load(data, name, src_tz, disp_tz, merge_ids, zero_missing) -> loading.LoadedData:
+    return _load(data, name, src_tz, disp_tz, merge_ids, zero_missing, CODE_VERSION)
+
+
 @st.cache_data(show_spinner=False, max_entries=24)
-def run_analysis(summary: pd.DataFrame, settings: analysis.Settings, scope: analysis.Scope,
-                 ma_window: int) -> analysis.Analysis:
+def _run_analysis(summary: pd.DataFrame, settings: analysis.Settings, scope: analysis.Scope,
+                  ma_window: int, code_version: str) -> analysis.Analysis:
     return analysis.analyze(summary, settings, scope, ma_window)
 
 
+def run_analysis(summary, settings, scope, ma_window) -> analysis.Analysis:
+    return _run_analysis(summary, settings, scope, ma_window, CODE_VERSION)
+
+
 @st.cache_data(show_spinner="Searching the best compensation…", max_entries=24)
-def run_optimize(df: pd.DataFrame, spec: float, margin: float, yaw_center: float):
+def _run_optimize(df: pd.DataFrame, spec: float, margin: float, yaw_center: float, code_version: str):
     return compensation.optimize(df, spec, margin, yaw_center=yaw_center)
 
 
+def run_optimize(df, spec, margin, yaw_center):
+    return _run_optimize(df, spec, margin, yaw_center, CODE_VERSION)
+
+
 @st.cache_data(show_spinner="Replaying past weeks…", max_entries=24)
-def run_backtest(df: pd.DataFrame, spec: float, margin: float, window_weeks: int, method: str):
+def _run_backtest(df: pd.DataFrame, spec: float, margin: float, window_weeks: int, method: str,
+                  code_version: str):
     return compensation.backtest(df, spec, margin, window_weeks, method)
 
 
+def run_backtest(df, spec, margin, window_weeks, method):
+    return _run_backtest(df, spec, margin, window_weeks, method, CODE_VERSION)
+
+
 @st.cache_data(show_spinner=False, max_entries=6)
-def demo_file() -> bytes:
+def _demo_file(code_version: str) -> bytes:
     return demo.demo_bytes()
+
+
+def demo_file() -> bytes:
+    return _demo_file(CODE_VERSION)
 
 
 # ---------------------------------------------------------------------------
